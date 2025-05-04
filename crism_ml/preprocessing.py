@@ -11,7 +11,7 @@ from joblib import Parallel, delayed
 
 from crism_ml import N_JOBS
 
-N_BANDS = 248
+N_BANDS = 228
 
 BANDS = np.array([
     1.021, 1.02755, 1.0341, 1.04065, 1.0472, 1.05375, 1.0603, 1.06685,

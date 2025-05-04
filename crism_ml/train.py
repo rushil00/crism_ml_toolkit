@@ -532,6 +532,41 @@ def merge_regions(avgs, merge_classes=True):
     return [_merge_region(regs, kls) for kls, regs in regions.items()]
 
 
+def get_ratioed_image(im_path, datadir):
+    """ RETURNS Ratioed Image """
+    fin0, fin = feat_masks()
+    bmodels = train_model_bland(datadir, fin0)
+    im_, _ = os.path.splitext(os.path.basename(im_path))
+    logging.info("Processing: %s", im_)
+    mat = load_image(im_path)
+
+    ts_ = time.time()
+    if_, rem = cp.filter_bad_pixels(mat['IF'])
+    logging.info("Removing bad pixels took %.3f seconds",
+                time.time() - ts_)
+
+    ts_ = time.time()
+    im_shape = image_shape(mat)
+    if1 = cp.remove_spikes_column(
+        if_.reshape(*im_shape, -1), 3, 5).reshape(if_.shape)
+    logging.info("Removing column spikes took %.3f seconds",
+                time.time() - ts_)
+
+    ts_ = time.time()
+    slog = compute_bland_scores(if1, (bmodels, fin0))
+    logging.info("Bland scores took %.3f seconds", time.time() - ts_)
+
+    ts_ = time.time()
+    slog_inf = cp.replace(slog, rem, -np.inf).reshape(im_shape)
+    if2 = cp.ratio(if1.reshape(*im_shape, -1), slog_inf).reshape(if_.shape)
+    logging.info("Ratioing took %.3f seconds", time.time() - ts_)
+
+    ts_ = time.time()
+    ifm = cp.remove_spikes(if2.copy(), CONF['despike_params'])
+    logging.info("Spike removal took %.3f seconds", time.time() - ts_)
+    ifm_ret = ifm.reshape(*im_shape, -1)
+    return ifm_ret
+
 def run_on_images(images, datadir, workdir, thresholds=(0.3, 0.4), plot=False):
     """Train models and run them on a set of images.
 
@@ -649,7 +684,7 @@ def get_parser():
     return parser
 
 
-if __name__ == '__main__':
-    logging.basicConfig(level=logging.INFO)
-    args = get_parser().parse_args()
-    run_on_images(args.image, args.datapath, args.workdir, args.thr, args.plot)
+# if __name__ == '__main__':
+#     logging.basicConfig(level=logging.INFO)
+#     args = get_parser().parse_args()
+#     run_on_images(args.image, args.datapath, args.workdir, args.thr, args.plot)
