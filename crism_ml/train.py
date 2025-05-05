@@ -532,6 +532,71 @@ def merge_regions(avgs, merge_classes=True):
     return [_merge_region(regs, kls) for kls, regs in regions.items()]
 
 
+# ------------------------------------------------------------------------------------------------------------
+# NOTE: NEWWWWW!!!!!
+# ------------------------------------------------------------------------------------------------------------
+def _resample_convhull(sig, bands):
+    from scipy.spatial import ConvexHull
+    from scipy.interpolate import interp1d
+    """Resample the signal using the convex hull."""
+    ext_bands = np.concatenate([[bands[0]], bands, [bands[-1]]])
+    ext_sig = np.concatenate([[0], sig, [0]])
+    # print(f"ext_bands shape: {ext_bands.shape}, ext_sig shape: {ext_sig.shape}")
+    # Check if ext_bands and ext_sig have the same length
+    if ext_bands.shape[0] != ext_sig.shape[0]:
+        raise ValueError(f"Shape mismatch: ext_bands has shape {ext_bands.shape}, ext_sig has shape {ext_sig.shape}")
+    # the behavior is the same as Matlab's convhull with 'Simplify' set to 1
+    conv = ConvexHull(np.stack([ext_bands, ext_sig], axis=1)).vertices
+    conv = np.sort(conv)[1:-1] - 1  # shift indices
+    conv = conv[conv < 228]
+
+    if not sig[0]:  # align to Matlab without simplify when leading zeros
+        conv = np.concatenate([[0, np.nonzero(sig)[0][0] - 1], conv])
+
+    return interp1d(bands[conv], sig[conv], bounds_error=False,
+                    copy=False, assume_sorted=True)(bands)
+
+
+
+def remove_continuum(signals, bands=None):
+    """Remove the slowly-varying component from multiple spectra efficiently.
+
+    Parameters
+    ----------
+    signals: ndarray
+        2D array of signals to remove the continuum from (shape: n_samples x n_features)
+    bands: ndarray
+        signal bands; defaults to the 248 main bands
+
+    Returns
+    -------
+    flat_sigs: ndarray
+        signals without the continuum (same shape as input)
+    curves: ndarray
+        the continuum curves (same shape as input)
+    """
+    if bands is None:
+        bands = cp.BANDS[:248]
+
+    signals = np.atleast_2d(signals)
+    not_const = np.ptp(signals, axis=1) > 0
+    flat_sigs = np.zeros_like(signals)
+    
+    # Pre-allocate curves array
+    curves = np.zeros_like(signals)
+    
+    # Process only non-constant signals
+    if np.any(not_const):
+        # Vectorized processing of non-constant signals
+        curves[not_const] = np.array([_resample_convhull(s, bands) for s in signals[not_const]])
+        with np.errstate(invalid='ignore'):
+            flat_sigs[not_const] = signals[not_const] / curves[not_const]
+
+    return flat_sigs, curves
+
+# ------------------------------------------------------------------------------------------------------------
+# -------------------------------------------------------------------------------------------------------------
+
 def get_ratioed_image(im_path, datadir):
     """ RETURNS Ratioed Image """
     fin0, fin = feat_masks()
@@ -539,9 +604,9 @@ def get_ratioed_image(im_path, datadir):
     im_, _ = os.path.splitext(os.path.basename(im_path))
     logging.info("Processing: %s", im_)
     mat = load_image(im_path)
-
     ts_ = time.time()
     if_, rem = cp.filter_bad_pixels(mat['IF'])
+    print(f"mat.shape: {if_.shape}")
     logging.info("Removing bad pixels took %.3f seconds",
                 time.time() - ts_)
 
@@ -560,6 +625,7 @@ def get_ratioed_image(im_path, datadir):
     slog_inf = cp.replace(slog, rem, -np.inf).reshape(im_shape)
     if2 = cp.ratio(if1.reshape(*im_shape, -1), slog_inf).reshape(if_.shape)
     logging.info("Ratioing took %.3f seconds", time.time() - ts_)
+    logging.info(f"Shape after ratioing: {if2.shape}")
 
     ts_ = time.time()
     ifm = cp.remove_spikes(if2.copy(), CONF['despike_params'])

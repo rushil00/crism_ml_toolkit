@@ -65,7 +65,7 @@ def _resample_convhull(sig, bands):
     """Resample the signal using the convex hull."""
     ext_bands = np.concatenate([[bands[0]], bands, [bands[-1]]])
     ext_sig = np.concatenate([[0], sig, [0]])
-
+    print(f"ext_sig shape: {ext_sig.shape}, ext_bands shape: {ext_bands.shape}")
     # the behavior is the same as Matlab's convhull with 'Simplify' set to 1
     conv = ConvexHull(np.stack([ext_bands, ext_sig], axis=1)).vertices
     conv = np.sort(conv)[1:-1] - 1  # shift indices
@@ -115,6 +115,38 @@ def remove_continuum(sig, bands=None):
 
     return flat_sig, curve
 
+def continuum_removal_image(img, bands=None):
+    """
+    Remove the continuum from a CRISM image (height x width x bands).
+
+    Parameters
+    ----------
+    img: ndarray
+        CRISM image of shape (height, width, bands)
+    bands: ndarray or None
+        Wavelengths for each band; defaults to BANDS[:N_BANDS]
+
+    Returns
+    -------
+    flat_img: ndarray
+        Image with continuum removed (same shape as input)
+    curve: ndarray
+        The continuum curve for each pixel (height, width, bands)
+    """
+    if bands is None:
+        bands = BANDS[:N_BANDS]
+
+    h, w, b = img.shape
+    flat_img = np.zeros_like(img)
+    curve = np.zeros_like(img)
+
+    # Reshape to (n_pixels, bands) for vectorized processing
+    img_reshaped = img.reshape(-1, b)
+    flat_sig, curve_sig = remove_continuum(img_reshaped, bands)
+    flat_img = flat_sig.reshape(h, w, b)
+    curve = np.stack(curve_sig).reshape(h, w, b)
+
+    return flat_img, curve
 
 def filter_bad_pixels(pixspec, copy=False):
     """Remove large, infinite or NaN values from the spectra.
